@@ -1,0 +1,4 @@
+policies:
+  tile1024_stride768:
+    primary:
+      threshold: 0.65

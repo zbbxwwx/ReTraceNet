@@ -1,0 +1,39 @@
+\begin{tikzpicture}[
+  font=\scriptsize,
+  node distance=4mm and 5mm,
+  box/.style={draw, rounded corners=1.5pt, align=center, minimum height=8mm, inner sep=2.8pt},
+  tinybox/.style={draw, rounded corners=1.2pt, align=center, minimum height=6.5mm, inner sep=2pt},
+  flow/.style={-Latex, line width=0.65pt},
+  causal/.style={-Latex, line width=0.8pt, color=red!70!black},
+  evidence/.style={-Latex, dashed, line width=0.65pt, color=blue!70!black}
+]
+\node[box, fill=gray!10] (rgb) {image $\mathbf{x}$};
+\node[box, fill=orange!15, right=of rgb] (qrc) {QRC\\constrained traces\\FiLM + $\rho_i$};
+\node[box, fill=green!12, right=of qrc] (encoder) {content leakage\\suppression +\\trace pyramid};
+\node[box, fill=yellow!16, right=of encoder] (proposal) {candidate\\proposal $\mathbf m$};
+\node[box, fill=red!9, right=of proposal, minimum width=25mm] (icti) {ICTI\\local/global pristine\\trace replacement};
+
+\node[tinybox, fill=blue!8, below left=6mm and -4mm of icti] (factual) {factual anchors\\$\{\mathbf A_i\}$};
+\node[tinybox, fill=red!8, below right=6mm and -4mm of icti] (counter) {counterfactual anchors\\$\{\widetilde{\mathbf A}_i\}$};
+\node[box, fill=violet!11, right=10mm of icti, yshift=-13mm] (verifier) {strictly shared recycler\\and verifier $V_\theta$};
+\node[box, fill=cyan!12, right=of verifier] (effect) {causal drop\\$\Delta=V_\theta(\mathbf A)-V_\theta(\widetilde{\mathbf A})$};
+\node[box, fill=blue!12, right=of effect] (ledger) {DHEL\\support / refutation\\bidirectional ledger};
+\node[box, fill=purple!11, right=of ledger] (cbr) {CBR\\conflict-guided\\boundary correction};
+\node[box, fill=gray!10, right=of cbr] (out) {mask $\hat{\mathbf y}$\\uncertainty $\mathbf u$\\score $s$};
+
+\draw[flow] (rgb) -- (qrc);
+\draw[flow] (qrc) -- (encoder);
+\draw[flow] (encoder) -- (proposal);
+\draw[flow] (proposal) -- (icti);
+\draw[flow] (encoder.south) |- (factual.west);
+\draw[flow] (icti.south) -- (counter.north);
+\draw[flow] (factual.east) -- (verifier.west);
+\draw[flow] (counter.east) -- (verifier.west);
+\draw[causal] (verifier) -- (effect);
+\draw[evidence] (qrc.south) |- node[pos=.78, below] {scale reliability $\rho_i$} (ledger.north);
+\draw[flow] (effect) -- (ledger);
+\draw[flow] (ledger) -- (cbr);
+\draw[flow] (cbr) -- (out);
+\draw[evidence] (ledger.south) to[bend right=24] node[below] {conflict $\kappa$} (cbr.south);
+\node[align=center, below=3mm of verifier, text=red!65!black] {same weights; RGB content is never intervened};
+\end{tikzpicture}

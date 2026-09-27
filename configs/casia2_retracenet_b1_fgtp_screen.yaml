@@ -1,0 +1,98 @@
+data:
+  authentic_probability: 0.1
+  blur_probability: 0.1
+  color_jitter: 0.08
+  image_size: 512
+  jpeg_probability: 0.15
+  jpeg_quality:
+  - 55
+  - 96
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  num_workers: 4
+  root: /
+  positive_crop_probability: 0.7
+  boundary_crop_probability: 0.0
+  min_positive_crop_ratio: 0.005
+  crop_retries: 20
+evaluation:
+  batch_size: 1
+  save_predictions: false
+  threshold: 0.5
+  thresholds: 101
+experiment: casia2_retracenet_b1_fgtp_screen
+loss:
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+  positive_weight_clip:
+  - 1.0
+  - 1.0
+  weights:
+    boundary: 0.0
+    counterfactual: 0.0
+    deep_supervision: 0.4
+    degradation_consistency: 0.0
+    dice: 1.0
+    image: 0.0
+    intervention_locality: 0.0
+    ledger: 0.0
+    localization: 1.0
+    orthogonality: 0.0
+    proposal: 0.0
+    variance_regularization: 0.0
+model:
+  architecture: retracenet_b1_fgtp
+  decoder_channels: 128
+  encoder_backbone: resnet50
+  forensic_channels:
+  - 64
+  - 128
+  - 256
+  - 512
+  freeze_encoder_bn: true
+  pretrained_path: /group4/zouwenxuan/iml_generalization/weights/resnet50-19c8e357.pth
+  residual_kernels: 8
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/b1_fgtp_screen_from_b0_e2
+seed: 3407
+training:
+  amp: false
+  batch_size: 1
+  consistency_probability: 0.0
+  early_stopping: 8
+  epochs: 8
+  grad_clip: 0.5
+  gradient_accumulation_steps: 4
+  intervention_teacher_probability: 0.0
+  init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/b0_fulltrain_v2_from_e5/best.pt
+  init_load_patterns: []
+  learning_rate: 5.0e-6
+  constant_epochs: 2
+  min_lr_ratio: 0.1
+  milestone_offsets:
+  - 2
+  - 4
+  - 6
+  - 8
+  parameter_groups:
+  - patterns:
+    - content_encoder.
+    lr: 2.5e-6
+    weight_decay: 0.01
+  - patterns:
+    - forensic_stream.
+    lr: 5.0e-6
+    weight_decay: 0.01
+  - patterns:
+    - decoder.
+    - mask_head.
+    - log_var_head.
+    - aux_heads.
+    - image_head.
+    lr: 5.0e-6
+    weight_decay: 0.01
+  - patterns:
+    - fgtp.
+    lr: 2.0e-5
+    weight_decay: 0.01
+  selection_metric: pixel_f1_oracle
+  warmup_epochs: 0
+  weight_decay: 0.01

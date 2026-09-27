@@ -1,0 +1,159 @@
+seed: 3407
+experiment: e15_hr_training_corrected
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e15_hr/training_corrected_20260909
+data:
+  root: /
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  image_size: 640
+  num_workers: 4
+  authentic_probability: 0.1
+  positive_crop_probability: 0.7
+  boundary_crop_probability: 0.0
+  min_positive_crop_ratio: 0.005
+  crop_retries: 20
+  jpeg_probability: 0.15
+  jpeg_quality:
+  - 55
+  - 96
+  blur_probability: 0.1
+  color_jitter: 0.08
+  tiny_stratified_sampling: false
+  area_stratified_sampling: false
+  whole_image_probability: 0.6
+  type_area_stratified_sampling: true
+  type_area_sampling_bucket_masses:
+    Tp_S:lt_1: 0.16
+    Tp_S:1_5: 0.16
+    Tp_S:5_20: 0.18
+    Tp_S:gte_20: 0.2
+    Tp_D:lt_1: 0.05
+    Tp_D:1_5: 0.07
+    Tp_D:5_20: 0.08
+    Tp_D:gte_20: 0.05
+    authentic: 0.05
+evaluation:
+  batch_size: 1
+  threshold: 0.5
+  thresholds: 101
+  boundary_threshold: 0.5
+  save_predictions: false
+  grid: original_GT
+  gt_foreground_rule: '>127'
+  auc_method: 65536_bin_pairwise_ties_half
+  state: model/raw
+  valid_pixels: GT>=0; ignore CAT padding
+model:
+  architecture: e15_hr_qtr_hcv2_dher_v21_mrfe
+  decoder_channels: 128
+  content_backbone: hrnet_w18
+  hrnet_model_name: hrnet_w18_small_v2
+  hrnet_pretrained: false
+  content_channels:
+  - 256
+  - 512
+  - 1024
+  - 2048
+  forensic_channels:
+  - 64
+  - 128
+  - 256
+  - 512
+  freeze_encoder_bn: true
+  pretrained_path: /group4/zouwenxuan/iml_generalization/repos/PSCC-Net/models/hrnet_w18_small_v2.pth
+  residual_kernels: 8
+  enable_mrfe: true
+loss:
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+  positive_weight_clip:
+  - 1.0
+  - 1.0
+  weights:
+    localization: 1.0
+    dice: 1.0
+    deep_supervision: 0.0
+    boundary: 0.05
+    image: 0.0
+    proposal: 0.0
+    counterfactual: 0.0
+    degradation_consistency: 0.0
+    variance_regularization: 0.0
+    orthogonality: 0.0
+    ledger: 0.0
+    intervention_locality: 0.0
+    tversky: 0.0
+  localization_implementation: plain_bce_no_uncertainty_weighting
+e15_hr_loss:
+  d1: 0.2
+  d2: 0.1
+  d3: 0.05
+  boundary: 0.1
+training:
+  parent: E5
+  init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/score_sprint_c_e5_mrfe_20260901_075256/best.pt
+  init_load_patterns:
+  - e15_anchor_content_encoder
+  - forensic_stream
+  - qtr.
+  - hcv2.
+  - dher.
+  - decoder
+  - mask_head
+  - log_var_head
+  - aux_heads
+  - image_head
+  init_key_remaps:
+  - source: content_encoder.
+    target: e15_anchor_content_encoder.
+  strict_checkpoint: true
+  allowed_missing_prefixes:
+  - content_encoder.
+  - e15_decoder.
+  epochs: 8
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  grad_clip: 0.5
+  amp: false
+  selection_metric: val_original_grid_fake_pooled_f1_best
+  constant_lr_epochs: 4
+  min_lr_ratio: 1.0
+  early_stopping: 3
+  meaningful_delta: 0.0001
+  consistency_probability: 0.0
+  intervention_teacher_probability: 0.0
+  diagnostic_batches: 0
+  progress_log_interval_steps: 25
+  parameter_groups:
+  - patterns:
+    - content_encoder.proj.
+    lr: 0.0001
+    weight_decay: 0.01
+  - patterns:
+    - e15_decoder.
+    lr: 0.0001
+    weight_decay: 0.01
+  ema: false
+  deep_supervision_weights:
+  - 0.0
+  - 0.0
+  - 0.0
+  minimum_epochs: 4
+  diagnostic_status: disabled; actual alphas and betas logged directly
+  frozen_modules:
+  - content_encoder.backbone
+  - e15_anchor_content_encoder
+  - forensic_stream
+  - qtr
+  - hcv2
+  - dher
+  - decoder
+  - mask_head
+  - log_var_head
+  - aux_heads
+  - image_head
+dher_v2_loss:
+  support: 0.0
+  refutation: 0.0
+reference_e15_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e15_hr/decoder_adapt/best.pt

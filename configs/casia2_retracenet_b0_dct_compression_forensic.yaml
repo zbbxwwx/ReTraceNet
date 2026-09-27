@@ -1,0 +1,108 @@
+seed: 3407
+experiment: b0_dct_compression_forensic
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/b0_dct_compression_forensic
+
+data:
+  root: /
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  image_size: 640
+  num_workers: 4
+  authentic_probability: 0.1
+  positive_crop_probability: 0.7
+  boundary_crop_probability: 0.0
+  min_positive_crop_ratio: 0.005
+  crop_retries: 20
+  jpeg_probability: 0.15
+  jpeg_quality: [55, 96]
+  blur_probability: 0.1
+  color_jitter: 0.08
+  tiny_stratified_sampling: true
+  tiny_sampling_bucket_masses:
+    lt_1: 0.25
+    '1_3': 0.25
+    '3_10': 0.30
+    gte_10: 0.20
+    authentic: 0.02
+  dct_forensic: true
+  dct_jpeg_quality: 100
+  dct_qtable_from_source: true
+  dct_cat_root: /group4/zouwenxuan/iml_generalization/data/CATNET_CASIA
+
+evaluation:
+  batch_size: 1
+  threshold: 0.5
+  thresholds: 101
+  save_predictions: false
+
+model:
+  architecture: retracenet_b0
+  decoder_channels: 128
+  encoder_backbone: resnet50
+  forensic_stream_type: dct_compression
+  forensic_channels: [64, 128, 256, 512]
+  freeze_encoder_bn: true
+  freeze_forensic_bn: false
+  pretrained_path: /group4/zouwenxuan/iml_generalization/weights/resnet50-19c8e357.pth
+  dct_pretrained_path: /group4/zouwenxuan/iml_generalization/repos/CAT-Net/pretrained_models/DCT_djpeg.pth.tar
+  residual_kernels: 8
+
+loss:
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+  positive_weight_clip: [1.0, 1.0]
+  weights:
+    localization: 1.0
+    dice: 1.0
+    deep_supervision: 0.0
+    boundary: 0.0
+    image: 0.0
+    proposal: 0.0
+    counterfactual: 0.0
+    degradation_consistency: 0.0
+    variance_regularization: 0.0
+    orthogonality: 0.0
+    ledger: 0.0
+    intervention_locality: 0.0
+    tversky: 0.2
+  tversky_alpha_fp: 0.3
+  tversky_beta_fn: 0.7
+
+training:
+  init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/performance_sprint_20260830_081014/B_640_e0_2/best.pt
+  init_load_patterns:
+    - content_encoder.
+    - decoder.
+    - mask_head.
+    - log_var_head.
+    - aux_heads.
+    - image_head.
+  allowed_missing_prefixes:
+    - forensic_stream.
+  epochs: 3
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-05
+  weight_decay: 0.01
+  grad_clip: 0.5
+  amp: false
+  selection_metric: pixel_f1_oracle
+  constant_lr_epochs: 1
+  min_lr_ratio: 0.1
+  early_stopping: 4
+  meaningful_delta: 0.0005
+  consistency_probability: 0.0
+  intervention_teacher_probability: 0.0
+  diagnostic_batches: 0
+  parameter_groups:
+    - patterns: [content_encoder.layer4]
+      lr: 5.0e-07
+    - patterns: [forensic_stream.]
+      lr: 2.0e-06
+    - patterns: [decoder]
+      lr: 3.0e-06
+    - patterns: [mask_head, aux_heads]
+      lr: 5.0e-06
+    - patterns: [log_var_head, image_head]
+      lr: 5.0e-06
+  ema: true
+  ema_decay: 0.999

@@ -1,0 +1,16 @@
+base_config: casia2_retracenet_e12_mechanism_full_adapt_from_e5.yaml
+experiment: e13_mechanism_full_adapt_after_transplant
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e13_mechanism_full_adapt_after_transplant
+data:
+  type_area_stratified_sampling: false
+  area_stratified_sampling: true
+  area_sampling_bucket_masses:
+    lt_1: 0.30
+    "1_5": 0.35
+    "5_20": 0.20
+    gte_20: 0.10
+    authentic: 0.05
+training:
+  init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e13_forensic_transplant/best.pt
+  epochs: 3
+  diagnostic_batches: 64

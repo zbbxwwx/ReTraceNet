@@ -1,0 +1,29 @@
+seed: 3407
+experiment: e12_forensic_history_pretrain
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e12_forensic_history_pretrain
+data:
+  root: /
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  image_size: 640
+  num_workers: 4
+  pretrain_min_rect: 0.18
+  pretrain_max_rect: 0.55
+model:
+  architecture: retracenet_b3_qtr_hcv2_dher_v21_mrfe
+  decoder_channels: 128
+  encoder_backbone: resnet50
+  forensic_channels: [64, 128, 256, 512]
+  freeze_encoder_bn: true
+  pretrained_path: /group4/zouwenxuan/iml_generalization/weights/resnet50-19c8e357.pth
+  residual_kernels: 8
+  enable_mrfe: true
+training:
+  init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/score_sprint_c_e5_mrfe_20260901_075256/best.pt
+  epochs: 3
+  batch_size: 2
+  gradient_accumulation_steps: 2
+  learning_rate: 5.0e-05
+  weight_decay: 0.01
+  grad_clip: 1.0
+  amp: false
+  class_loss_weight: 0.2

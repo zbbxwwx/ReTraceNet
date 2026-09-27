@@ -1,0 +1,7 @@
+base_config: casia2_retracenet_e12_mechanism_full_adapt_from_e5.yaml
+experiment: e12_mechanism_full_adapt_from_e5_pretrained_forensic
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e12_mechanism_full_adapt_from_e5_pretrained_forensic
+training:
+  secondary_init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e12_forensic_history_pretrain/last_forensic_pretrain.pt
+  secondary_init_load_patterns:
+    - forensic_stream.

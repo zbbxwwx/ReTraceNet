@@ -1,0 +1,128 @@
+seed: 3407
+experiment: casia2_retrace_resnet50_poscrop70_hmsi_run_c_hdrp_v2_spatial
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet/resnet50_poscrop70_hmsi_run_c_hdrp_v2_spatial
+data:
+  authentic_probability: 0.1
+  blur_probability: 0.1
+  color_jitter: 0.08
+  image_size: 512
+  jpeg_probability: 0.15
+  jpeg_quality:
+  - 55
+  - 96
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  num_workers: 4
+  root: /
+  positive_crop_probability: 0.7
+  min_positive_crop_ratio: 0.005
+  crop_retries: 20
+model:
+  base_channels: 256
+  decoder_channels: 128
+  depths:
+  - 2
+  - 2
+  - 3
+  - 3
+  recycle_steps: 1
+  residual_kernels: 8
+  drop_path: 0.0
+  encoder_backbone: resnet50
+  pretrained_path: /group4/zouwenxuan/iml_generalization/weights/resnet50-19c8e357.pth
+  freeze_encoder_bn: true
+  use_quality_calibration: true
+  use_content_orthogonalization: true
+  use_counterfactual_intervention: true
+  use_evidence_ledger: true
+  use_uncertainty_refinement: false
+  use_content_decoder_fusion: false
+  intervention_neighborhood: 9
+  intervention_teacher_mix: 0.5
+  residual_intervention_output: true
+  residual_intervention_init: -4.0
+  intervention_strength_scale: 1.0
+  intervention_gate_mode: centered
+  intervention_gate_threshold: 0.2
+  intervention_gate_temperature: 0.05
+  use_causal_correction_head: false
+  causal_correction_init: -6.0
+  causal_correction_channels: 2
+  use_highres_decoder_refinement: false
+  use_dhel_residual_correction: false
+  dhel_residual_init: -6.0
+  causal_correction_injection: none
+  use_dhel_feature_fusion: true
+  dhel_feature_fusion_init: -4.0
+  use_residual_stream: true
+  residual_encoder_channels:
+  - 32
+  - 64
+  - 128
+  - 256
+  residual_encoder_type: lightweight_srm
+  use_cross_scale_reliability: true
+  use_coarse_to_fine_icvm: true
+  use_conflict_cross_scale_reasoning: true
+  use_multiscale_evidence_feedback: true
+  use_reliability_conflict_feedback_gate: true
+  use_cbr: false
+  use_spatial_reliability: true
+  spatial_reliability_hidden: 64
+loss:
+  weights:
+    localization: 1.0
+    dice: 1.0
+    boundary: 0.0
+    deep_supervision: 0.2
+    proposal: 0.0
+    counterfactual: 0.0
+    ledger: 0.0
+    intervention_locality: 0.0
+    orthogonality: 0.0
+    image: 0.0
+    degradation_consistency: 0.0
+    variance_regularization: 0.0
+    causal_correction: 0.0
+    dhel_directional: 0.0
+  positive_weight_clip:
+  - 1.0
+  - 1.0
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+  proposal_positive_weight_clip:
+  - 1.0
+  - 20.0
+  causal_correction_mode: directional
+  causal_correction_threshold: 0.39960918417195895
+  causal_correction_positive_weight_clip:
+  - 1.0
+  - 50.0
+  dhel_directional_threshold: 0.39960918417195895
+  dhel_directional_positive_weight_clip:
+  - 1.0
+  - 50.0
+  dhel_directional_stable_weight: 0.5
+  dhel_directional_margin: 1.0
+training:
+  epochs: 94
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-06
+  weight_decay: 0.01
+  warmup_epochs: 0
+  grad_clip: 0.5
+  amp: false
+  reset_optimizer_on_resume: true
+  strict_resume: false
+  consistency_probability: 0.0
+  intervention_teacher_probability: 0.0
+  log_interval: 20
+  early_stopping: 5
+  trainable_patterns:
+  - spatial_reliability
+  selection_metric: pixel_f1_oracle
+evaluation:
+  batch_size: 1
+  save_predictions: false
+  threshold: 0.5
+  thresholds: 101

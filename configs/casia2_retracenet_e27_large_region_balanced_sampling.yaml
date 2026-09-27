@@ -1,0 +1,214 @@
+seed: 3407
+
+experiment: E27_large_region_balanced_sampling
+
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e27_large_region_balanced_sampling_20260911
+
+data:
+  root: /
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  image_size: 640
+  num_workers: 4
+
+  authentic_probability: 0.1
+  positive_crop_probability: 0.7
+  boundary_crop_probability: 0.0
+  min_positive_crop_ratio: 0.005
+  crop_retries: 20
+
+  jpeg_probability: 0.15
+  jpeg_quality:
+    - 55
+    - 96
+
+  blur_probability: 0.1
+  color_jitter: 0.08
+
+  tiny_stratified_sampling: false
+  tiny_sampling_bucket_masses:
+    lt_1: 0.25
+    '1_3': 0.25
+    '3_10': 0.30
+    gte_10: 0.20
+    authentic: 0.02
+
+  area_stratified_sampling: true
+  area_sampling_bucket_masses:
+    lt_1: 0.15
+    '1_5': 0.20
+    '5_20': 0.30
+    gte_20: 0.25
+    authentic: 0.10
+
+  dct_forensic: true
+  dct_source_mode: original_jpeg
+  dct_qtable_from_source: false
+  dct_jpeg_quality: 100
+
+evaluation:
+  batch_size: 1
+  threshold: 0.5
+  thresholds: 101
+  save_predictions: false
+
+model:
+  architecture: retracenet_b3_qtr_hcv2_dher_v21_mrfe
+  decoder_channels: 128
+  encoder_backbone: resnet50
+
+  forensic_channels:
+    - 64
+    - 128
+    - 256
+    - 512
+
+  freeze_encoder_bn: true
+  pretrained_path: /group4/zouwenxuan/iml_generalization/weights/resnet50-19c8e357.pth
+
+  residual_kernels: 8
+  enable_mrfe: true
+  forensic_stream_type: residual
+
+  enable_dct_parallel: true
+  dct_injection_zero_init: true
+  dct_pretrained_path: /group4/zouwenxuan/iml_generalization/repos/CAT-Net/pretrained_models/DCT_djpeg.pth.tar
+
+  freeze_forensic_bn: true
+
+  enable_dher_visibility: true
+  enable_splicing_region_affinity: false
+  enable_region_consistency: false
+  enable_dher_calibrated_writeback: true
+
+loss:
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+
+  positive_weight_clip:
+    - 1.0
+    - 1.0
+
+  weights:
+    localization: 1.0
+    dice: 1.0
+    deep_supervision: 0.0
+    boundary: 0.05
+    image: 0.0
+    proposal: 0.0
+    counterfactual: 0.0
+    degradation_consistency: 0.0
+    variance_regularization: 0.0
+    orthogonality: 0.0
+    ledger: 0.0
+    intervention_locality: 0.0
+    tversky: 0.2
+
+  tversky_alpha_fp: 0.3
+  tversky_beta_fn: 0.7
+
+hcv_loss:
+  proposal: 1.0
+  verifier: 1.0
+  withdrawal: 0.8
+  withdrawal_margin: 0.15
+  stability: 0.35
+  locality: 0.2
+
+training:
+  init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/e24_dher_calibrated_writeback_20260910/best.pt
+
+  epochs: 5
+  batch_size: 1
+  gradient_accumulation_steps: 4
+
+  learning_rate: 1.0e-05
+  weight_decay: 0.01
+  grad_clip: 0.5
+  amp: false
+
+  selection_metric: val_original_grid_fake_pooled_F1_best
+
+  constant_lr_epochs: 1
+  min_lr_ratio: 0.5
+  early_stopping: 5
+  meaningful_delta: 0.0
+
+  consistency_probability: 0.0
+  intervention_teacher_probability: 0.0
+  diagnostic_batches: 0
+
+  parameter_groups:
+    - patterns:
+        - forensic_stream.mrfe
+      lr: 1.0e-05
+      weight_decay: 0.01
+
+    - patterns:
+        - content_encoder.stem
+        - content_encoder.layer1
+      lr: 2.0e-08
+      weight_decay: 0.01
+
+    - patterns:
+        - content_encoder.layer2
+      lr: 4.0e-08
+      weight_decay: 0.01
+
+    - patterns:
+        - content_encoder.layer3
+      lr: 1.0e-07
+      weight_decay: 0.01
+
+    - patterns:
+        - content_encoder.layer4
+      lr: 2.0e-07
+      weight_decay: 0.01
+
+    - patterns:
+        - forensic_stream.residual_bank
+        - forensic_stream.stage1
+        - forensic_stream.stage2
+      lr: 1.0e-07
+      weight_decay: 0.01
+
+    - patterns:
+        - forensic_stream.stage3
+        - forensic_stream.stage4
+      lr: 2.0e-07
+      weight_decay: 0.01
+
+    - patterns:
+        - decoder
+      lr: 6.0e-07
+      weight_decay: 0.01
+
+    - patterns:
+        - mask_head
+        - log_var_head
+        - aux_heads
+        - image_head
+      lr: 1.0e-06
+      weight_decay: 0.01
+
+  ema: false
+  ema_decay: 0.999
+
+  deep_supervision_weights:
+    - 0.3
+    - 0.2
+    - 0.1
+
+  allowed_missing_prefixes:
+    - forensic_stream.mrfe.
+
+dher_v2_loss:
+  support: 0.0
+  refutation: 0.0
+
+e24:
+  residual_l1: 0.01
+  bg_positive: 0.02
+  feature_l1: 0.005
+  source_best_f1: 0.7980785749644633
+  catastrophic_drop: 0.003
+  max_safe_logit_residual_rms: 0.35

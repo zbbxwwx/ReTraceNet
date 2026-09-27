@@ -1,0 +1,394 @@
+\subsection{Forensic Intervention Formulation}
+\label{sec:formulation}
+
+Our starting point is a distinction between \emph{predictive correlation} and
+\emph{trace-specific evidence}. A pixel may receive a high manipulation score
+because its residual is inconsistent with the rest of the image, but it may also
+receive the same score because it belongs to a salient object boundary that is
+over-represented in the training masks. Feature separation reduces the second
+failure mode only indirectly. We instead ask whether a suspected trace is
+necessary for the prediction. Let $\mathbf A=\{\mathbf A_i\}_{i=1}^L$ denote the
+observed forensic pyramid and let $\mathcal I(\mathbf A,\mathbf m)$ replace traces
+selected by proposal $\mathbf m$ without changing the RGB content path. We call
+$\widetilde{\mathbf A}=\mathcal I(\mathbf A,\mathbf m)$ a trace counterfactual.
+For a weight-shared verifier $V_\theta$, the pixel-wise effect is positive when
+removing the trace withdraws manipulation evidence. This construction embodies
+three controls: factual and counterfactual inputs come from the same image, their
+content features are identical, and their verifier parameters are identical.
+
+The proposal is necessarily imperfect. Hence, a single positive effect cannot be
+treated as proof. \method{} maintains two hypotheses throughout decoding:
+$H_1$ states that a local manipulation trace is present, whereas $H_0$ states that
+the observed deviation is compatible with the pristine image. Every scale writes
+support for both hypotheses. Their ratio yields a decision; their simultaneous
+strength yields conflict. This causal-effect-and-ledger formulation determines
+the order of all modules below: quality calibration must precede intervention,
+intervention must precede evidence accounting, and ledger conflict must precede
+uncertainty-guided refinement.
+
+\textbf{Design principle and novelty boundary.}
+The framework is deliberately not a collection of interchangeable attention
+blocks. Its state changes have distinct meanings. QRC estimates whether a trace
+observation is trustworthy; ICTI asks what the prediction would be without that
+observation; the shared verifier measures the resulting withdrawal of evidence;
+DHEL records support and refutation without cancelling either; and CBR spends
+additional capacity where those accounts disagree. Removing an earlier stage
+therefore changes the input semantics of every later stage. This ordering also
+separates our objective from frequency selection, prototype matching, or generic
+two-branch fusion: none of those operations by itself tests the necessity of a
+suspected trace while preserving the content path and verifier. We use
+``counterfactual'' in this operational, model-internal sense rather than claiming
+to reconstruct the unknown unedited photograph. The intervention supplies a
+controlled diagnostic contrast, and the ledger makes the limitations of that
+contrast visible as conflict instead of converting it immediately into a hard
+mask.
+
+\subsection{Quality-Conditioned Trace Observation}
+\label{sec:qrc}
+
+\textbf{Exactly constrained residuals.}
+The RGB path preserves scene structure, while the trace path begins with $M$
+learnable $5\!\times\!5$ residual kernels. For the $m$th kernel and center
+$p_0$, we impose
+\begin{equation}
+\sum_{c,p}\mathbf K_m(c,p)=0,\quad
+\sum_c\mathbf K_m(c,p_0)=-1,\quad
+\sum_{c,p\ne p_0}\mathbf K_m(c,p)=1.
+\label{eq:new_constraint}
+\end{equation}
+The three center coefficients are $-1/3$; all non-center coefficients are a
+softmax over unconstrained parameters. Equation~\eqref{eq:new_constraint} is
+therefore satisfied on every forward pass rather than approximately restored
+after optimization. The zero DC response suppresses locally constant appearance,
+but it does not make residual strength comparable across unknown processing
+chains.
+
+\textbf{Calibration and evidential reliability.}
+From grayscale image $g$, we measure mean, standard deviation, saturation ratio,
+horizontal/vertical gradient energy, Laplacian energy, and nominal 8-pixel block
+boundary energy:
+\begin{equation}
+\begin{split}
+\mathbf q&=[\mu_g,\sigma_g,\rho_{\rm sat},E_x,E_y,E_{\rm lap},B_x,B_y],\\
+\bar{\mathbf T}_i&=(1+0.5\tanh\bm\gamma_i)\odot\mathbf T_i
+                  +0.5\tanh\bm\beta_i,\quad
+\rho_i=\sigma(r_i),
+\end{split}
+\label{eq:new_quality}
+\end{equation}
+where $(\bm\gamma_i,\bm\beta_i,r_i)$ are produced by a small MLP from $\mathbf q$.
+The FiLM terms calibrate the observation; scalar $\rho_i\in(0,1)$ states how much
+the ledger should trust scale $i$. This division is important. A strongly
+recompressed image can still contain a large high-frequency response, yet that
+response should receive low evidential weight. The final MLP layer is initialized
+to zero, making FiLM an identity and $\rho_i=0.5$ at the beginning of training.
+
+\textbf{Content leakage suppression.}
+QRC is followed by a lightweight safeguard rather than treated as a principal
+contribution. Aligned trace and content vectors are locally projected:
+\begin{equation}
+\mathbf T_i^\perp=\bar{\mathbf T}_i-\sigma(a_i)
+\frac{\langle\bar{\mathbf T}_i,\mathbf C_i\rangle}
+{\|\mathbf C_i\|_2^2+\epsilon}\mathbf C_i,\qquad
+\mathbf A_i=\operatorname{LN}(\mathbf W_i*\mathbf T_i^\perp).
+\label{eq:new_orth_anchor}
+\end{equation}
+The projected and original traces are mixed before $\mathbf W_i$, so useful
+content-coupled acquisition statistics are not irreversibly deleted. All anchors
+have width $d$. We do not claim that orthogonality alone establishes forensic
+causality; it merely reduces leakage before the explicit intervention test.
+
+The distinction between calibration and reliability is also consequential for
+optimization. If quality descriptors directly gated the final mask, the model
+could learn dataset-specific correlations such as ``strong compression implies
+tampering.'' Here they can only rescale trace observations and discount evidence
+writes. A low $\rho_i$ cannot create pristine evidence, nor can it suppress the
+RGB content path; it merely limits how strongly a questionable forensic scale
+votes in DHEL. Conversely, FiLM cannot decide the final class because its output
+must still survive intervention and shared verification. The two outputs of QRC
+thus constrain one another: calibration improves observability, while reliability
+prevents an amplified but unstable response from dominating the ledger. Per-scale
+reliability further permits a blurred image to distrust the finest scale while
+retaining useful block or region statistics at coarser scales.
+
+\subsection{Intra-Image Counterfactual Trace Intervention}
+\label{sec:icti}
+
+ICTI constructs an alternative trace pyramid that is plausible under $H_0$ and
+matched in semantic content. It contains a proposal, an image-internal pristine
+estimator, and a soft intervention. No external generator or pristine reference
+image is needed.
+
+\textbf{Proposal and intervention curriculum.}
+The finest anchor yields proposal logits $\mathbf a=P(\mathbf A_1)$ and candidate
+probability $\mathbf m=\sigma(\mathbf a)$. During training, early proposals may
+miss the entire manipulated region, in which case the counterfactual would equal
+the factual input and provide no gradient. With probability $p_e=p_0\eta^e$ at
+epoch $e$, we mix the resized ground-truth mask into the intervention selector:
+\begin{equation}
+\mathbf m_i^{(e)}=(1-\lambda_t)\mathcal R_i(\sigma(\mathbf a))
+ +\lambda_t\mathcal R_i(\mathbf y),\qquad p_e=p_0\eta^e.
+\label{eq:new_curriculum}
+\end{equation}
+We use $p_0=0.6$, $\eta=0.95$, and $\lambda_t=0.5$. When teacher forcing is not
+sampled, the first term is used alone; inference never observes $\mathbf y$.
+Proposal BCE and Dice supervision ensure that the selector remains meaningful
+after the curriculum decays.
+
+\textbf{Pristine trace estimation from the same image.}
+Let $\mathbf b_i=1-\operatorname{sg}(\mathbf m_i)$ be detached background weights.
+For pixel $p$, local and global pristine estimates are
+\begin{equation}
+\mathbf l_i(p)=
+\frac{\sum_{q\in\mathcal N(p)}b_i(q)\mathbf A_i(q)}
+     {\sum_{q\in\mathcal N(p)}b_i(q)+\epsilon},\qquad
+\mathbf g_i=
+\frac{\sum_q b_i(q)\mathbf A_i(q)}{\sum_q b_i(q)+\epsilon}.
+\label{eq:new_pristine}
+\end{equation}
+The local estimate preserves spatially varying camera and compression statistics;
+the global estimate is a stable fallback when $\mathcal N(p)$ is mostly
+suspicious. Detaching $\mathbf b_i$ prevents the proposer from changing merely to
+make pristine estimation easier. A gated convolution
+$R_i=R([\mathbf A_i,\mathbf l_i,\mathbf g_i,\mathbf m_i])$ selects between the two
+contexts and adapts them to the candidate location. The adapter is bounded to
+$0.1\tanh(\cdot)$ around their convex mixture; it therefore corrects estimation
+bias without becoming an unconstrained feature generator.
+
+\textbf{Soft trace erasure.}
+A learned gate $h_i\in(0,1)$ controls intervention strength. The counterfactual
+anchor and observable intervention energy are
+\begin{equation}
+\widetilde{\mathbf A}_i=\mathbf A_i+\mathbf m_i h_i\odot
+(\mathbf R_i-\mathbf A_i),\qquad
+\mathbf e_i=\operatorname{mean}_c|\mathbf A_i-\widetilde{\mathbf A}_i|.
+\label{eq:new_intervention}
+\end{equation}
+Hard replacement would create a new edge at the proposal boundary and allow the
+detector to recognize its own intervention. The soft form makes replacement
+continuous and exposes $\mathbf m_i h_i$ for a background-locality penalty. Since
+only trace anchors are altered, both branches reuse the exact RGB content
+features already absorbed during leakage suppression.
+
+ICTI contains three safeguards against a trivial counterfactual. First, the
+replacement is estimated only from the current image, so the branch cannot use
+the identity of an external donor as an easy cue. Second, the selector is
+supervised but detached when it defines pristine weights; otherwise it could
+expand the presumed-pristine set solely to minimize reconstruction error. Third,
+the residual adapter and intervention gate are bounded, while off-target energy
+is penalized. An all-zero intervention is rejected by proposal supervision and
+the positive-region ranking loss; an all-image intervention is rejected by
+background stability and locality; an adversarial replacement is restricted by
+the convex local/global estimate and bounded adapter. These controls do not prove
+that $\widetilde{\mathbf A}_i$ is the true pristine feature. They make the learned
+contrast falsifiable: a useful intervention must be localized, lower the factual
+score within manipulated pixels, preserve background predictions, and remain
+stable under benign degradation.
+
+\subsection{Strictly Shared Causal Verification}
+\label{sec:verifier}
+
+The factual and counterfactual anchors are independently transported by the same
+multi-scale operator. Starting from $\mathbf H_i^0=\mathbf A_i$ (or
+$\widetilde{\mathbf A}_i$), each iteration re-injects its immutable anchor and
+exchanges neighboring-scale context:
+\begin{equation}
+\begin{split}
+\overleftarrow{\mathbf H}_i^k&=\Phi_{\rm td}(\mathbf H_i^{k-1},
+\mathcal R(\overleftarrow{\mathbf H}_{i+1}^k),\mathbf H_i^0),\\
+\mathbf H_i^k&=\Phi_{\rm bu}(\overleftarrow{\mathbf H}_i^k,
+\mathcal R(\mathbf H_{i-1}^k),\mathbf H_i^0).
+\end{split}
+\label{eq:new_transport}
+\end{equation}
+$\Phi_{\rm td}$ and $\Phi_{\rm bu}$ are gated ConvNeXt-style cells shared across
+scales and across the two branches. We use two iterations. The shared verifier
+$V_\theta$ then produces factual and counterfactual logits. Their controlled
+effect is
+\begin{equation}
+\Delta(p)=V_\theta(\{\mathbf H_i^K\})(p)-
+V_\theta(\{\widetilde{\mathbf H}_i^K\})(p).
+\label{eq:new_effect}
+\end{equation}
+Because the branches differ only through Eq.~\eqref{eq:new_intervention}, a
+positive $\Delta$ is evidence that the erased trace supported the original
+decision. Shared weights are essential: independent decoders could manufacture a
+large $\Delta$ through parameter asymmetry. We inject only
+$\operatorname{ReLU}(\Delta)$ into the final manipulation logit. Negative effects
+are not discarded, however; they enter the refutation account below.
+
+\subsection{Dual-Hypothesis Evidence Ledger}
+\label{sec:dhel}
+
+\textbf{Local evidence writes.}
+At every scale, a shared writer compares the factual state, counterfactual state,
+and their signed difference. Two softplus outputs create non-negative support
+$s_i$ and refutation $r_i$:
+\begin{equation}
+[s_i,r_i]=\rho_i\operatorname{softplus}\!\left(
+W_E*[\mathbf H_i^K,\widetilde{\mathbf H}_i^K,
+\mathbf H_i^K-\widetilde{\mathbf H}_i^K]\right)+\epsilon.
+\label{eq:new_write}
+\end{equation}
+The writer is not constrained to interpret every feature difference as support.
+For example, a large difference that fails to lower the factual logit can be
+written as refutation. Multiplication by $\rho_i$ connects acquisition quality to
+evidential strength rather than to the final probability directly.
+
+\textbf{Bounded bidirectional accounting.}
+Let $\mathbf L_i=[s_i,r_i]$. Coarse-to-fine transport supplies region context;
+fine-to-coarse transport returns boundary counter-evidence:
+\begin{equation}
+\overleftarrow{\mathbf L}_i=\mathbf L_i+\sigma(\alpha_i)
+\mathcal R(\overleftarrow{\mathbf L}_{i+1}),\qquad
+\mathbf L_i^*=\overleftarrow{\mathbf L}_i+\sigma(\beta_i)
+\mathcal R(\mathbf L_{i-1}^*).
+\label{eq:new_ledger_transport}
+\end{equation}
+The sigmoid-bounded discounts prevent one scale from contributing unbounded
+evidence. Unlike feature addition, both ledger channels retain their identity
+through transport. Consequently, a location with $(s,r)=(0.1,0.1)$ is distinct
+from $(s,r)=(10,10)$ even though both have zero signed difference.
+
+\textbf{Decision and conflict.}
+For the aggregated support/refutation at each scale, we compute
+\begin{equation}
+\ell_i=\log(s_i^*+\epsilon)-\log(r_i^*+\epsilon),\qquad
+\kappa_i=\frac{2\min(s_i^*,r_i^*)}{s_i^*+r_i^*+\epsilon}
+\left(1-e^{-(s_i^*+r_i^*)}\right).
+\label{eq:new_conflict}
+\end{equation}
+$\ell_i$ is a supervised manipulation log-odds; $\kappa_i\in[0,1]$ is high only
+when both hypotheses have comparable and non-trivial strength. The exponential
+mass factor prevents two negligible accounts from appearing maximally uncertain.
+Five interpretable maps---normalized support, normalized refutation, conflict,
+evidence mass, and intervention energy---are embedded and written back to the factual state. DHEL therefore retains an
+auditable evidence representation while still providing rich decoder features.
+
+This ledger differs from concatenating multi-scale features in two ways. First,
+its channels have fixed hypothesis semantics at every resolution, so transport
+cannot silently rotate support into refutation. Second, conflict depends on both
+balance and evidence mass. Standard entropy is high for a probability near one
+half even when the network has observed almost nothing; $\kappa_i$ instead becomes
+large only when substantial evidence supports both hypotheses. This matters near
+real splice boundaries, where an editing trace and a natural edge can coexist,
+and in heavily compressed regions, where all accounts should remain weak. The
+causal effect and intervention energy are included in the ledger writeback but do
+not overwrite the accounts. DHEL can therefore express three different states:
+confident manipulation, confident pristine content, and unresolved contradiction.
+CBR consumes the third state explicitly rather than forcing DHEL to make a
+premature binary decision.
+
+\subsection{Conflict-Guided Boundary Refinement}
+\label{sec:cbr}
+
+The finest ledger-enriched state gives coarse logit $z^0$ and learned log-variance
+$u^0$. Its probability gradient $b=\|\nabla\sigma(z^0)\|_2$ identifies a candidate
+boundary. Learned uncertainty and ledger conflict are mixed, then supplied with
+intervention energy to a residual head:
+\begin{equation}
+\begin{split}
+q&=(1-\omega)\sigma(u^0)+\omega\kappa_1,
+\quad \omega=\sigma(w),\\
+(\delta z,\delta u)&=G([\mathbf H_1^{\rm led},\sigma(z^0),b,q,
+\kappa_1,e_1]),\\
+z&=z^0+(0.5+q)\delta z+\sigma(g)\operatorname{ReLU}(\Delta),
+\quad u=\operatorname{logit}(q)+\delta u.
+\end{split}
+\label{eq:new_refine}
+\end{equation}
+This design makes uncertainty operational and partially mechanistic. High ledger
+conflict expands the correction budget, whereas a strong RGB boundary with weak
+intervention effect is not automatically amplified. The factual/counterfactual
+effect is added only after their matched verification, preserving the controlled
+contrast.
+
+For image-level screening, reliability $c_p=\exp(-u_p)$ weights spatial evidence.
+An MLP $h$ maps reliable mean and maximum to score $s$:
+\begin{equation}
+s=h\!\left(\frac{\sum_p c_p\sigma(z_p)}{\sum_p c_p+\epsilon},
+\max_p c_p\sigma(z_p)\right).
+\label{eq:new_image_score}
+\end{equation}
+Thus, ledger conflict affects both pixel refinement and the confidence assigned to
+the whole-image decision.
+
+\subsection{Non-Degenerate Causal Training}
+\label{sec:loss}
+
+\textbf{Localization and boundary terms.}
+Small regions would otherwise be dominated by pristine pixels. With manipulated
+area $A_+$ and background area $A_-$, define
+$w_+=\operatorname{clip}(\sqrt{(A_-+1)/(A_++1)},1,w_{\max})$. The primary loss is
+\begin{equation}
+\mathcal L_{\rm het}=\frac1{HW}\sum_p w(y_p)e^{-u_p}
+\operatorname{BCE}(z_p,y_p)+\tfrac12u_p,
+\label{eq:new_hetero}
+\end{equation}
+combined with soft Dice and BCE between morphological gradients of prediction and
+mask. Auxiliary decoder maps and proposal logits receive BCE+Dice supervision.
+
+\textbf{Counterfactual validity and locality.}
+The intervention must lower evidence inside a manipulated region yet leave the
+background stable. For margin $\delta$, factual/counterfactual probabilities
+$p^f,p^{cf}$, and logits $z^f,z^{cf}$, we use
+\begin{equation}
+\mathcal L_{\rm cf}=\frac{\sum_p y_p\operatorname{softplus}
+(\delta-z_p^f+z_p^{cf})}{\sum_py_p+\epsilon}
++\frac{\sum_p(1-y_p)|p_p^f-p_p^{cf}|}{\sum_p(1-y_p)+\epsilon}.
+\label{eq:new_cf_loss}
+\end{equation}
+A locality loss averages intervention strength outside the ground-truth region.
+It prevents the counterfactual generator from altering the full feature map to
+manufacture a large effect. Importantly, proposal supervision and locality are
+both required: the former avoids an empty intervention; the latter avoids an
+unbounded one.
+
+\textbf{Ledger and transported causal consistency.}
+Every ledger log-odds $\ell_i$ receives BCE+Dice supervision. For a differentiable
+degradation $D$ that preserves geometry, we align both final masks and bounded
+causal effects:
+\begin{equation}
+\begin{split}
+\mathcal L_{\rm led}&=\frac1L\sum_i
+[\operatorname{BCE}(\ell_i,\mathbf y)+\tfrac12\operatorname{Dice}(\ell_i,\mathbf y)],\\
+\mathcal L_{\rm ct}&=\mathcal L_{\rm sym}(z(\mathbf x),z(D\mathbf x))
++\operatorname{SmoothL1}(\tanh\Delta(\mathbf x),
+\tanh\Delta(D\mathbf x)).
+\end{split}
+\label{eq:new_ledger_consistency}
+\end{equation}
+Mask consistency alone can preserve a shortcut; effect consistency requires the
+model to preserve which trace caused its decision after resizing, blur, or
+quantization.
+
+The objectives are optimized jointly because each closes a different escape
+route. Pixel supervision alone permits semantic shortcut learning. Ranking alone
+permits global or adversarial interventions. Locality alone permits an empty
+intervention. Ledger supervision alone permits both accounts to grow without
+testing their causal origin. Their combination requires a localized proposal, a
+matched score decrease, stable background behavior, correctly signed evidence,
+and degradation-stable attribution. Teacher assistance is annealed rather than
+removed abruptly, allowing the proposal and verifier to co-adapt before inference
+uses the proposal alone. We monitor manipulated-region causal drop,
+counterfactual background change, intervention precision, and ledger
+contradiction rate in addition to localization metrics; these diagnostics expose
+degenerate solutions that a favorable F1 score could conceal.
+
+The full objective is
+\begin{equation}
+\begin{split}
+\mathcal L={}&\lambda_h\mathcal L_{\rm het}+\lambda_d\mathcal L_{\rm dice}
++\lambda_b\mathcal L_{\rm bd}+\lambda_p\mathcal L_{\rm prop}
++\lambda_{cf}\mathcal L_{\rm cf}\\
+&+\lambda_{led}\mathcal L_{\rm led}+\lambda_{loc}\mathcal L_{\rm loc}
++\lambda_{ct}\mathcal L_{\rm ct}+\lambda_o\mathcal L_{\perp}
++\lambda_i\mathcal L_{\rm img}+\lambda_v\|\mathbf u\|_2^2.
+\end{split}
+\label{eq:new_total}
+\end{equation}
+The implementation exposes every coefficient and mechanism. Disabling ICTI also
+disables counterfactual and locality losses; disabling DHEL removes ledger loss;
+and disabling CBR removes variance regularization. This coupling keeps cumulative
+ablations semantically valid rather than leaving an objective active after its
+associated mechanism has been removed.

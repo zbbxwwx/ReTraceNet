@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Data, weights, checkpoints, and outputs
+data/*
+!data/toy/
+!data/toy/**
+weights/
+checkpoints/
+outputs/
+runs/
+*.pt
+*.pth
+*.pth.tar
+*.ckpt
+*.onnx
+
+# Local logs and runtime state
+*.log
+*.pid
+nohup.out
+wandb/
+tensorboard/
+
+# Local backups and generated archives
+.codex_backups/
+backups/
+*.bak
+*.bak_*
+*.before_*
+*.pre_*
+*.zip
+*.tar
+*.tar.gz
+
+# Generated manuscript files
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.pdf
+
+# Accidental shell artifacts and local diagnostics
+/1024
+/=
+/JPEG
+/hcv_region_preflight.json
+
+# Temporary server-side compatibility link; not part of the public API
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

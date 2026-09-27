@@ -1,0 +1,3 @@
+base_config: ../default.yaml
+experiment: a4_full
+output_dir: runs/ablations/a4_full

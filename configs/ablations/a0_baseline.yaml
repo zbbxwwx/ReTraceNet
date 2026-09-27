@@ -1,0 +1,18 @@
+base_config: ../default.yaml
+experiment: a0_baseline
+output_dir: runs/ablations/a0_baseline
+model:
+  use_quality_calibration: false
+  use_content_orthogonalization: false
+  use_counterfactual_intervention: false
+  use_evidence_ledger: false
+  recycle_steps: 0
+  use_uncertainty_refinement: false
+loss:
+  weights:
+    orthogonality: 0.0
+    proposal: 0.0
+    counterfactual: 0.0
+    ledger: 0.0
+    intervention_locality: 0.0
+    variance_regularization: 0.0

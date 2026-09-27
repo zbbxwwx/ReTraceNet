@@ -1,0 +1,75 @@
+data:
+  authentic_probability: 0.1
+  blur_probability: 0.1
+  color_jitter: 0.08
+  image_size: 512
+  jpeg_probability: 0.15
+  jpeg_quality:
+  - 55
+  - 96
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  num_workers: 4
+  root: /
+evaluation:
+  batch_size: 1
+  save_predictions: false
+  threshold: 0.5
+  thresholds: 101
+experiment: retrace_icti_sanity_detach_cf
+loss:
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+  positive_weight_clip:
+  - 2.0
+  - 50.0
+  weights:
+    boundary: 0.25
+    counterfactual: 0.25
+    deep_supervision: 0.35
+    degradation_consistency: 0.0
+    dice: 0.6
+    image: 0.2
+    intervention_locality: 0.05
+    ledger: 0.0
+    localization: 1.0
+    orthogonality: 0.03
+    proposal: 0.15
+    variance_regularization: 0.0
+model:
+  base_channels: 32
+  decoder_channels: 96
+  depths:
+  - 2
+  - 2
+  - 3
+  - 3
+  drop_path: 0.1
+  intervention_neighborhood: 9
+  intervention_teacher_mix: 0.5
+  recycle_steps: 2
+  residual_kernels: 8
+  use_content_decoder_fusion: false
+  use_content_orthogonalization: true
+  use_counterfactual_intervention: true
+  use_evidence_ledger: false
+  use_quality_calibration: true
+  use_uncertainty_refinement: false
+  detach_counterfactual_anchor: true
+  intervention_strength_scale: 1.0
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet/icti_sanity/detach_cf
+seed: 3407
+training:
+  amp: false
+  batch_size: 1
+  consistency_probability: 0.0
+  early_stopping: 3
+  epochs: 3
+  grad_clip: 1.0
+  gradient_accumulation_steps: 4
+  intervention_teacher_probability: 0.6
+  learning_rate: 0.0001
+  log_interval: 20
+  reset_optimizer_on_resume: true
+  selection_metric: pixel_f1_oracle
+  warmup_epochs: 1
+  weight_decay: 0.01

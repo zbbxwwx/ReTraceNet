@@ -1,0 +1,526 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs,multirow}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[hidelinks]{hyperref}
+
+\input{results_auto}
+\newcommand{\TBD}{\textcolor{red!70!black}{TBD}}
+\newcommand{\method}{ReTraceNet}
+\newcommand{\etal}{\textit{et al.}}
+\newcommand{\R}{\mathbb{R}}
+
+\title{ReTrace: Counterfactual Evidence Accounting for Faint Image Manipulation Localization}
+
+\author{Anonymous Authors%
+\thanks{Manuscript prepared for double-blind review. Replace this block with author affiliations only after the review policy permits.}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Local image manipulation increasingly preserves semantic plausibility while
+leaving only weak, spatially sparse traces. Existing localizers can correlate
+such traces with a mask, but a high response does not establish that the trace---
+rather than scene content or a dataset shortcut---caused the decision. We
+introduce \method, a passive localization framework that tests forensic evidence
+through an intra-image counterfactual intervention. A quality-conditioned
+residual encoder first calibrates trace features and estimates their scale-wise
+reliability. A candidate proposer then softly replaces suspicious trace tokens
+with local/global pristine estimates from low-suspicion pixels of the same image,
+while leaving the RGB content pathway unchanged. Factual and counterfactual
+pyramids pass through strictly shared weights; their logit drop provides a
+controlled measure of trace-specific effect. A dual-hypothesis evidence ledger
+accumulates manipulation support and pristine counter-evidence across scales
+instead of collapsing contradiction by feature fusion. Ledger conflict directly
+conditions boundary refinement and predictive variance. Training combines
+area-balanced heteroscedastic localization with counterfactual ranking, background
+stability, ledger supervision, intervention locality, and causal-effect transport
+consistency. The evaluation protocol spans classical and generative edits,
+cross-dataset transfer, post-processing, pristine false alarms, and counterfactual
+validity. \ResultSummary Code and configurations expose every intervention and
+ledger component for controlled ablation.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Image forensics, manipulation localization, weak traces, counterfactual
+intervention, evidence accounting, uncertainty estimation.
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{M}{odern} editing systems can remove, copy, splice, or regenerate a
+small region without introducing an obvious semantic error.  The remaining clues
+often lie in demosaicing noise, resampling correlations, local compression
+history, or a narrow blending boundary.  These clues occupy different spatial
+scales and are far weaker than the depicted content.  Image manipulation
+localization (IML) must therefore solve a particularly unfavorable segmentation
+problem: its most predictive training shortcuts are often the least transferable
+forensic cues.
+
+Existing approaches combine RGB with noise or frequency streams
+\cite{zhou2018learning,wu2019mantranet,kwon2021catnet,guillaro2023trufor}, supervise
+edges \cite{chen2021mvss,li2023edge}, or model long-range consistency
+\cite{wang2022objectformer,guo2023hifi}. More recent designs add adaptive DCT and
+content disentanglement \cite{wong2025adcd}, multi-spectral attention
+\cite{nam2025m2sformer}, diffusion traces \cite{yu2024diffforensics}, or an ordered
+sequence of masks for composite edits \cite{zhu2026rita}. These advances expose
+complementary evidence, but they leave a different question open: would the
+prediction change if the suspected forensic trace were absent while image content
+remained fixed?
+
+This question matters because correlation is not evidence attribution. A local
+response may arise from a genuine acquisition inconsistency, an object boundary,
+texture complexity, or dataset construction bias. Feature disentanglement can
+reduce leakage, but it does not test whether the retained trace is necessary for
+the decision. Ordinary augmentation changes both foreground and background,
+whereas prototype matching measures similarity without observing a prediction
+under intervention. Moreover, conventional multi-scale fusion compresses
+supporting and contradicting observations into one latent tensor: weak agreement
+and strong disagreement can become indistinguishable.
+
+We address these gaps with \method. Given image $\mathbf{x}$, the network emits a
+pixel mask, a log-variance map, and an image-level manipulation score:
+\begin{equation}
+(\mathbf{z},\mathbf{u},s)=F_{\theta}(\mathbf{x}),\qquad
+\hat{\mathbf y}=\sigma(\mathbf z),
+\label{eq:problem}
+\end{equation}
+where $\mathbf{x}\in[0,1]^{3\times H\times W}$, $\mathbf{u}$ measures predictive
+ambiguity, and $s$ supports pristine-image screening.  Fig.~\ref{fig:overview}
+summarizes the pipeline.
+
+The method follows one causal chain and contains four separately falsifiable
+technical contributions:
+\begin{itemize}
+\item We formulate passive IML as trace-specific counterfactual verification and
+introduce intra-image counterfactual trace intervention (ICTI). It changes only
+candidate trace tokens, derives replacement statistics from the same image, and
+uses a strictly shared verifier to control branch capacity.
+\item We propose a dual-hypothesis evidence ledger (DHEL) that writes non-negative
+manipulation support and pristine counter-evidence at every scale. Quality-
+conditioned reliability discounts each write, and bounded bidirectional transport
+preserves contradiction that standard fusion would average away.
+\item We derive conflict-guided boundary refinement (CBR) from the ledger. Its
+uncertainty has a mechanistic component---simultaneous support and refutation---
+and jointly controls boundary correction, heteroscedastic training, and image-
+level pooling.
+\item We develop objectives that prevent degenerate interventions: trace erasure
+must lower logits inside manipulated regions, preserve background predictions,
+remain spatially local, and transport the same causal effect across degradations.
+\end{itemize}
+
+\begin{figure*}[t]
+\centering
+\resizebox{0.98\textwidth}{!}{\input{figures/architecture}}
+\caption{Overview of \method. ICTI creates a content-matched counterfactual in
+trace space. Strictly shared weights isolate its prediction effect; DHEL retains
+support and counter-evidence, whose conflict guides CBR.}
+\label{fig:overview}
+\end{figure*}
+
+\section{Related Work}
+\subsection{Forensic Trace Representation}
+Handcrafted high-pass residuals and camera-model traces suppress image content,
+but may fail under an unseen processing chain.  Constrained convolution
+\cite{bayar2018constrained}, Noiseprint \cite{cozzolino2020noiseprint}, and
+ManTra-Net \cite{wu2019mantranet} learn more general residual statistics.
+CAT-Net jointly reasons over RGB and DCT coefficients \cite{kwon2021catnet}, while
+TruFor combines RGB and a learned noise-sensitive fingerprint and estimates a
+reliability map \cite{guillaro2023trufor}. ADCD-Net adaptively discounts DCT cues
+under block misalignment, disentangles document content, and builds a pristine
+prototype \cite{wong2025adcd}. Our quality module instead assigns reliability to
+evidence writes, while the pristine estimate is used only to construct a
+counterfactual whose effect is measured by a shared verifier.
+
+\subsection{Multi-Scale and Boundary Reasoning}
+MVSS-Net jointly exploits noise and boundary views with multi-scale supervision
+\cite{chen2021mvss}.  ObjectFormer models object-level consistency
+\cite{wang2022objectformer}; NCL treats contour patches as non-mutually-exclusive
+contrastive samples \cite{zhou2023ncl}; and edge-aware message passing preserves
+boundary cues \cite{li2023edge}. Recent systems expand the setting to large-scale
+modern manipulations \cite{qu2024modern}, dynamic frequency context
+\cite{xiang2024scca}, diffusion priors \cite{yu2024diffforensics}, and multi-
+spectral attention \cite{nam2025m2sformer}. These methods learn a fused
+representation. DHEL is different in representation and purpose: it maintains
+two non-negative evidence accounts and exposes their conflict before writing them
+back to decoder features.
+
+\subsection{Generalization and Reliability}
+Cross-dataset evaluation is essential because training-set artifacts can dominate
+IML models.  CFL-Net \cite{niloy2023cfl} and NCL \cite{zhou2023ncl} use contrastive
+learning to separate authentic and manipulated distributions.  HiFi-Net exploits
+hierarchical manipulation attributes \cite{guo2023hifi}; TrainFors highlights the
+effect of nonstandardized training data \cite{nandi2023trainfors}.  Our protocol
+therefore fixes training data, adds pristine images, discloses threshold selection,
+and measures calibration under post-processing.
+
+\subsection{Process Modeling and Counterfactual Verification}
+RITA reformulates composite manipulation localization as autoregressive mask
+prediction over editing steps \cite{zhu2026rita}; OmniGuard combines active
+watermarking with passive extraction \cite{zhang2025omniguard}. Our setting is
+passive and does not reconstruct an unknown edit sequence. ICTI asks a local
+necessity question inside a single observed image: after replacing only the
+suspected trace with an internally estimated pristine trace, does a weight-shared
+detector withdraw its claim? This controlled factual/counterfactual comparison is
+also distinct from augmentation consistency, which changes acquisition cues in
+the entire image.
+
+\begin{table*}[t]
+\centering
+\caption{Mechanism-level positioning relative to representative recent IML
+designs. ``Intervention'' means changing candidate forensic features while
+holding the content path and verifier weights fixed; it is stricter than using a
+prototype as an additional feature.}
+\label{tab:mechanism_position}
+\setlength{\tabcolsep}{4.2pt}
+\begin{tabular}{lccccc}
+\toprule
+Method & Quality/reliability use & Content or pristine modeling & Trace intervention
+& Matched effect & Explicit support/refutation\\
+\midrule
+TruFor \cite{guillaro2023trufor} & output confidence & RGB/noise fusion & -- & -- & --\\
+M2SFormer \cite{nam2025m2sformer} & -- & multi-spectral attention & -- & -- & --\\
+ADCD-Net \cite{wong2025adcd} & adaptive DCT score & disentanglement + prototype & -- & -- & --\\
+RITA \cite{zhu2026rita} & -- & ordered mask history & -- & -- & --\\
+\method{} & scale write reliability & same-image pristine estimator & ICTI
+& shared verifier drop & DHEL + conflict\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\section{Method}
+\input{sections/method}
+\iffalse % Legacy v0 method retained only for revision traceability.
+\subsection{Quality-Aware Trace Calibration}
+Let $\mathbf{K}_m$ be the $m$th $5\!\times\!5$ residual kernel across RGB.  We
+enforce a zero DC response exactly on every forward pass:
+\begin{equation}
+\sum_{c,p}\mathbf K_m(c,p)=0,\quad
+\sum_c\mathbf K_m(c,p_0)=-1,\quad
+\sum_{c,p\ne p_0}\mathbf K_m(c,p)=1,
+\label{eq:constraint}
+\end{equation}
+where the non-center coefficients are softmax-normalized and the three center
+coefficients equal $-1/3$.  The bank output
+$\mathbf r=[\mathbf K_1*\mathbf x,\ldots,\mathbf K_M*\mathbf x]$ is therefore
+insensitive to locally constant content.
+
+Metadata is unreliable after platform transcoding.  We instead compute an
+eight-dimensional descriptor from grayscale intensity $g$: 
+\begin{equation}
+\mathbf q(\mathbf x)=[\mu_g,\sigma_g,\rho_{\rm sat},E_x,E_y,E_{\rm lap},B_x,B_y],
+\label{eq:quality}
+\end{equation}
+where $E$ denotes first- or second-order residual energy and $B$ is the mean
+gradient crossing nominal 8-pixel block boundaries.  An MLP produces bounded
+feature-wise affine parameters for trace scale $i$:
+\begin{equation}
+\widetilde{\mathbf T}_i=(1+0.5\tanh\bm\gamma_i)\odot
+\mathbf T_i+0.5\tanh\bm\beta_i.
+\label{eq:film}
+\end{equation}
+Zero initialization makes QTC an identity mapping at the start of training.
+
+\subsection{Content-Orthogonal Trace Separation}
+Parallel lightweight encoders produce content feature $\mathbf C_i$ and calibrated
+trace feature $\widetilde{\mathbf T}_i$.  After $1\!\times\!1$ alignment, COT
+subtracts the channel-vector projection at each location:
+\begin{equation}
+\mathbf T_i^{\perp}=\widetilde{\mathbf T}_i-alpha_i
+\frac{\langle\widetilde{\mathbf T}_i,\mathbf C_i\rangle}
+{\|\mathbf C_i\|_2^2+\epsilon}\mathbf C_i,
+\qquad \alpha_i=\sigma(a_i).
+\label{eq:orthogonal}
+\end{equation}
+The learnable $\alpha_i$ lets the data determine how aggressively to remove
+content.  A pointwise mixing layer combines $\mathbf T_i^\perp$ with the original
+trace so that projection cannot irreversibly erase useful evidence.
+
+\subsection{Multi-Scale Evidence Recycling}
+Four COT outputs are mapped to a common width $d$ and stored as immutable anchors:
+\begin{equation}
+\mathbf A_i=\operatorname{LN}\!\left(\mathbf W_i*\mathbf T_i^{\perp}\right),
+\quad i\in\{1,2,3,4\}.
+\label{eq:anchors}
+\end{equation}
+States start from $\mathbf H_i^0=\mathbf A_i$.  One recycling iteration applies a
+shared gated cell $\Phi$ top-down and another bottom-up:
+\begin{equation}
+\begin{split}
+\overleftarrow{\mathbf H}_i^k&=\Phi_{\rm td}(\mathbf H_i^{k-1},
+\mathcal R(\overleftarrow{\mathbf H}_{i+1}^k),\mathbf A_i),\\
+\mathbf H_i^k&=\Phi_{\rm bu}(\overleftarrow{\mathbf H}_i^k,
+\mathcal R(\mathbf H_{i-1}^k),\mathbf A_i),
+\end{split}
+\label{eq:recycle}
+\end{equation}
+where $\mathcal R$ resizes the neighboring state.  Each cell concatenates current,
+neighbor, and anchor features, then adds a sigmoid-gated ConvNeXt-style proposal.
+Sharing $\Phi$ across scales and iterations controls capacity; reusing $\mathbf A_i$
+provides a short path for a weak trace after coarse context becomes available.
+
+\subsection{Uncertainty-Guided Residual Boundary Head}
+The finest recycled state yields coarse logit $\mathbf z^0$, initial log variance
+$\mathbf u^0$, and boundary magnitude $\mathbf b=\|\nabla\sigma(\mathbf z^0)\|_2$.
+URB predicts two residuals:
+\begin{equation}
+(\Delta\mathbf z,\Delta\mathbf u)=G([\mathbf H_1^K,
+\sigma(\mathbf z^0),\mathbf b,\sigma(\mathbf u^0)]),\quad
+\mathbf z=\mathbf z^0+(0.5+\sigma(\mathbf u^0))\Delta\mathbf z.
+\label{eq:urb}
+\end{equation}
+Thus ambiguous pixels receive a larger correction budget, while easy interiors
+remain stable.  With reliability $\mathbf r=\exp(-\mathbf u)$, image-level evidence
+uses reliable mean and reliable maximum statistics:
+\begin{equation}
+s=h\!\left(\frac{\sum_p r_p\hat y_p}{\sum_p r_p+\epsilon},
+\max_p r_p\hat y_p\right).
+\label{eq:image}
+\end{equation}
+
+\subsection{Training Objective}
+Small manipulated regions should not vanish in the sea of authentic pixels.  For
+sample positive area $A_+$ and negative area $A_-$, we use
+\begin{equation}
+w_+=\operatorname{clip}\!\left(\sqrt{\frac{A_-+1}{A_++1}},1,w_{\max}\right).
+\label{eq:area}
+\end{equation}
+The primary localization loss is a heteroscedastic weighted BCE:
+\begin{equation}
+\mathcal L_{\rm het}=\frac{1}{HW}\sum_p w(y_p)e^{-u_p}
+\operatorname{BCE}(z_p,y_p)+\tfrac12 u_p.
+\label{eq:hetero}
+\end{equation}
+We complement it with soft Dice,
+\begin{equation}
+\mathcal L_{\rm dice}=1-\frac{2\sum_p\hat y_py_p+1}
+{\sum_p\hat y_p+\sum_py_p+1},
+\label{eq:dice}
+\end{equation}
+and boundary agreement using morphological gradient $\mathcal B_k$:
+\begin{equation}
+\mathcal L_{\rm bd}=\operatorname{BCE}(\mathcal B_k(\hat{\mathbf y}),
+\mathcal B_k(\mathbf y)).
+\label{eq:boundary}
+\end{equation}
+A second forward pass applies differentiable resize--blur--quantization
+$D(\mathbf x)$ without changing geometry.  Teacher-detached bidirectional
+agreement gives
+\begin{equation}
+\mathcal L_{\rm con}=\tfrac12\!\left[
+\operatorname{BCE}(\mathbf z_D,\operatorname{sg}(\hat{\mathbf y}))+
+\operatorname{BCE}(\mathbf z,\operatorname{sg}(\hat{\mathbf y}_D))\right].
+\label{eq:consistency}
+\end{equation}
+To make the architectural separation measurable, we penalize residual alignment:
+\begin{equation}
+\mathcal L_{\perp}=\frac14\sum_i
+\mathbb E_p\left|\cos(\mathbf T_i^{\perp}(p),\mathbf C_i(p))\right|.
+\label{eq:orthloss}
+\end{equation}
+The total objective combines these terms with deep supervision
+$\mathcal L_{\rm aux}$, image BCE $\mathcal L_{\rm img}$, and a small variance
+regularizer:
+\begin{equation}
+\mathcal L=\lambda_h\mathcal L_{\rm het}+\lambda_d\mathcal L_{\rm dice}
++\lambda_b\mathcal L_{\rm bd}+\lambda_c\mathcal L_{\rm con}
++\lambda_o\mathcal L_{\perp}+\lambda_a\mathcal L_{\rm aux}
++\lambda_i\mathcal L_{\rm img}+\lambda_v\|\mathbf u\|_2^2.
+\label{eq:total}
+\end{equation}
+
+\fi
+\section{Experiments}
+\subsection{Research Questions and Protocol}
+The experiments are organized around five preregistered questions: (RQ1) Does the
+model improve cross-domain localization? (RQ2) Does it retain faint traces after
+post-processing? (RQ3) Does each innovation contribute beyond parameter count?
+(RQ4) Is uncertainty calibrated and useful for triage? (RQ5) What is the accuracy--
+efficiency tradeoff at native resolution?
+
+\textbf{Data.} Train on a fixed union of CASIAv2 \cite{dong2013casia} and the
+training split of MIML \cite{qu2024modern}, with all source-linked near-duplicates
+kept in one split.  Evaluate without target fine-tuning on CASIAv1, Columbia
+\cite{hsu2006columbia}, COVERAGE \cite{wen2016coverage}, NIST16
+\cite{guan2019nist}, and IMD2020 \cite{novozamsky2020imd}.  A separate split of
+modern diffusion-based local edits is required; its generator families must be
+disjoint between train and test.  Include pristine images in every evaluation.
+
+\textbf{Metrics.} Report pixel F1 and IoU at threshold 0.5, pixel AUROC, image
+AUROC, pixel false-positive rate (FPR) on pristine images, and expected calibration
+error (ECE) for uncertainty. Counterfactual validity is measured by manipulated-
+region causal drop, background prediction change, intervention precision, and
+ledger contradiction rate. A threshold selected on the validation set may be
+reported separately.  Test-set best thresholds are marked ``oracle'' and never
+used for the headline.  Bootstrap 95\% confidence intervals and paired permutation
+tests are computed per image with Holm correction.
+
+\textbf{Baselines.} Retrain or use official checkpoints for ManTra-Net, CAT-Net,
+MVSS-Net, ObjectFormer, NCL, TruFor, HiFi-Net, DiffForensics, APSC-Net, ADCD-Net,
+M2SFormer, and RITA under each method's stated input protocol. Report both
+official and common-training results rather than conflating them; document methods
+whose task assumptions require document images, active watermarks, or ordered
+multi-step labels.
+
+\textbf{Implementation.} The default model uses widths $(32,64,128,256)$, decoder
+width 96, eight residual kernels, a $9\times9$ pristine neighborhood, and two
+shared transport iterations. Images are randomly
+cropped to $512^2$.  AdamW uses learning rate $2\!\times\!10^{-4}$, weight decay
+$10^{-2}$, three warm-up epochs, and cosine decay for 80 epochs. The principal
+weights $(\lambda_h,\lambda_d,\lambda_b,\lambda_p,\lambda_{cf},\lambda_{led},
+\lambda_{loc},\lambda_{ct},\lambda_o,\lambda_i,\lambda_v)$ are
+$(1,.6,.25,.15,.25,.20,.05,.20,.03,.20,.01)$; auxiliary supervision has weight
+.35. The intervention teacher probability starts at .6 and decays by .95 per
+epoch. All settings are fixed before test evaluation and repeated with three
+seeds.
+
+\subsection{Cross-Domain Comparison}
+Table~\ref{tab:main} is intentionally unpopulated in this artifact: inserting
+plausible-looking numbers before running the released protocol would invalidate
+the paper.  `tools/export_latex.py' converts evaluation JSON to macros.
+
+\begin{table*}[t]
+\centering
+\caption{Cross-domain pixel F1 at threshold 0.5 (\%). ``Avg.'' is computed over
+datasets, not pooled pixels. Best/second best should be marked only after all
+three-seed runs complete.}
+\label{tab:main}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lcccccc}
+\toprule
+Method & CASIAv1 & Columbia & COVERAGE & NIST16 & IMD2020 & Avg.\\
+\midrule
+MVSS-Net \cite{chen2021mvss} & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD\\
+ObjectFormer \cite{wang2022objectformer} & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD\\
+NCL \cite{zhou2023ncl} & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD\\
+TruFor \cite{guillaro2023trufor} & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD\\
+DiffForensics \cite{yu2024diffforensics} & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD\\
+\method{} (ours) & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The final analysis must separate gains on manipulated images from false alarms on
+pristine images.  We will also stratify results by manipulated area
+$(0,1]\%,(1,5]\%,(5,20]\%,>20\%$ to directly test the faint/sparse-trace claim.
+
+\subsection{Robustness and Calibration}
+Apply JPEG quality $\{90,70,50\}$, rescaling factors $\{0.5,0.75,1.5\}$, Gaussian
+blur $\sigma\in\{0.5,1,2\}$, and two-stage combinations after manipulation.  The
+primary robustness statistic is relative F1 retention.  Reliability is evaluated
+by uncertainty--error AUROC, sparsification error, and risk--coverage curves.
+
+\begin{table}[t]
+\centering
+\caption{Robustness and reliability. All entries are \%.}
+\label{tab:robust}
+\begin{tabular}{lcccc}
+\toprule
+Method & Clean F1 & JPEG50 & Scale .5 & Error AUROC\\
+\midrule
+TruFor & \TBD & \TBD & \TBD & \TBD\\
+M2SFormer & \TBD & \TBD & \TBD & \TBD\\
+\method & \TBD & \TBD & \TBD & \TBD\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablations and Mechanistic Tests}
+The cumulative ablation in Table~\ref{tab:ablation} is paired with targeted tests:
+shuffle $\mathbf q$ across a batch to distinguish quality conditioning from extra
+capacity; replace ICTI by random-region intervention, RGB blur, and ordinary
+augmentation; give factual/counterfactual branches independent weights; replace
+DHEL by parameter-matched concatenation; collapse support and refutation to their
+sum; and detach conflict from CBR. These controls test the intervention, controlled
+comparison, ledger representation, and operational uncertainty separately.
+
+\begin{table}[t]
+\centering
+\caption{Cumulative and controlled ablation. CD: cross-domain mean; PP:
+post-processing mean; P-FPR: pristine pixel FPR.}
+\label{tab:ablation}
+\begin{tabular}{lccc}
+\toprule
+Configuration & CD F1 $\uparrow$ & PP F1 $\uparrow$ & P-FPR $\downarrow$\\
+\midrule
+One-pass RGB/residual baseline & \TBD & \TBD & \TBD\\
+$+$ QRC observation/reliability & \TBD & \TBD & \TBD\\
+$+$ ICTI + shared verifier & \TBD & \TBD & \TBD\\
+$+$ DHEL evidence accounting & \TBD & \TBD & \TBD\\
+$+$ CBR + causal objectives & \TBD & \TBD & \TBD\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Vary transport iterations $K\in\{0,1,2,3,4\}$ and report parameter count, FLOPs,
+latency, and peak memory. Visual evidence should show factual/counterfactual masks,
+causal drop, support, refutation, conflict, intervention energy, final uncertainty,
+and failure cases selected by a fixed rule rather than appearance.
+
+\subsection{Reproducibility and Statistical Reporting}
+The repository stores the resolved YAML, random seed, optimizer and scaler state,
+fixed-threshold metrics, threshold sweeps, and per-image outputs.  Dataset manifests
+are hashed in the final release.  We report mean $\pm$ standard deviation over
+three seeds and confidence intervals over test images.  Hyperparameters may be
+chosen only on validation data.
+
+\section{Discussion}
+\subsection{Why Intervention and Accounting Should Help Faint Traces}
+A conventional localizer learns $P(\mathbf y\mid\mathbf x)$ and can succeed by any
+stable correlation in its training distribution. \method{} adds a within-image
+test: a candidate trace must survive proposal supervision, be locally replaceable
+by a plausible pristine estimate, and cause a prediction drop under the same
+verifier. The ledger then prevents a weak positive effect from hiding strong
+counter-evidence at another scale. QRC, ICTI, DHEL, and CBR are consequently not
+parallel feature boosters. QRC makes the intervention baseline credible; ICTI
+creates the contrast needed by DHEL; DHEL exposes conflict needed by CBR; and the
+causal losses make each link testable.
+
+\subsection{Limitations}
+The counterfactual is estimated rather than observed. If the proposal covers most
+of an image, too few low-suspicion pixels remain to estimate a valid pristine
+trace; the global fallback can then be biased. Conversely, a missed proposal
+cannot be causally verified. The zero-sum bank still favors local residual
+discontinuities and may miss a perfectly rendered edit whose only inconsistency is
+semantic. Our effect is causal only with respect to the implemented feature-space
+intervention and its assumptions; it is not a claim about the human editing
+process. Nominal 8-pixel statistics are an imperfect proxy for neural codecs, and
+tiled inference may break extremely long-range dependencies. Finally, uncertainty
+is not legal proof of manipulation and requires deployment-specific calibration.
+
+\subsection{Ethical Use}
+Localization can support provenance analysis, journalism, and content moderation,
+but false accusations can cause harm.  Deployments should expose masks and
+uncertainty to trained analysts, retain original files and metadata, and avoid
+automatic attribution to an individual.  Dataset consent, license, demographic
+coverage, and platform-specific calibration must be documented.  The released
+code detects artifacts; it does not identify an editor or infer intent.
+
+\section{Conclusion}
+We presented \method, a counterfactual evidence-accounting approach to faint image
+manipulation traces. Quality-conditioned observations enable an intra-image trace
+intervention; strictly shared verification measures the resulting evidence drop;
+a dual-hypothesis ledger retains support and refutation; and ledger conflict guides
+boundary refinement and reliability. The objectives and controlled experiments
+turn this chain into falsifiable claims. The manuscript becomes submission-ready
+only after the disclosed cross-domain, counterfactual, robustness, ablation,
+calibration, and statistical experiments replace every \TBD{} entry.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\appendices
+\section{Minimum Submission Checklist}
+Before submission: (1) replace anonymous metadata as required; (2) verify dataset
+licenses and split hashes; (3) run three seeds; (4) populate fixed-threshold,
+validation-threshold, pristine, and calibration metrics; (5) include controlled
+ablations and confidence intervals; (6) archive code and environments; and (7)
+remove all \TBD{} tokens.  A search command is provided in the paper README.
+
+\end{document}

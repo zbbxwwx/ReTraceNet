@@ -1,0 +1,72 @@
+seed: 3407
+experiment: retrace_debug_core_lr1e4
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet/debug_core_lr1e4
+data:
+  root: /
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  image_size: 512
+  num_workers: 4
+  authentic_probability: 0.1
+  jpeg_probability: 0.15
+  jpeg_quality:
+  - 55
+  - 96
+  blur_probability: 0.1
+  color_jitter: 0.08
+model:
+  base_channels: 32
+  decoder_channels: 96
+  depths:
+  - 2
+  - 2
+  - 3
+  - 3
+  recycle_steps: 1
+  residual_kernels: 8
+  drop_path: 0.05
+  use_quality_calibration: true
+  use_content_orthogonalization: true
+  use_counterfactual_intervention: false
+  use_evidence_ledger: false
+  use_uncertainty_refinement: false
+  intervention_neighborhood: 9
+  intervention_teacher_mix: 0.5
+loss:
+  weights:
+    localization: 1.0
+    dice: 1.0
+    boundary: 0.2
+    deep_supervision: 0.5
+    proposal: 0.0
+    counterfactual: 0.0
+    ledger: 0.0
+    intervention_locality: 0.0
+    orthogonality: 0.0
+    image: 0.0
+    degradation_consistency: 0.0
+    variance_regularization: 0.0
+  positive_weight_clip:
+  - 2.0
+  - 50.0
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+training:
+  epochs: 12
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  warmup_epochs: 1
+  grad_clip: 1.0
+  amp: false
+  reset_optimizer_on_resume: true
+  consistency_probability: 0.0
+  intervention_teacher_probability: 0.0
+  log_interval: 20
+  early_stopping: 12
+  selection_metric: pixel_f1_oracle
+evaluation:
+  batch_size: 1
+  threshold: 0.5
+  thresholds: 101
+  save_predictions: false

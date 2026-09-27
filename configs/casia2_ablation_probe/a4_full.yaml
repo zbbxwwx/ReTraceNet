@@ -1,0 +1,68 @@
+seed: 3407
+experiment: retrace_a4_full
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet/ablation_probe/a4_full
+
+data:
+  root: /
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  image_size: 512
+  num_workers: 4
+  authentic_probability: 0.1
+  jpeg_probability: 0.15
+  jpeg_quality: [45, 96]
+  blur_probability: 0.10
+  color_jitter: 0.08
+
+model:
+  base_channels: 32
+  decoder_channels: 96
+  depths: [2, 2, 3, 3]
+  recycle_steps: 2
+  residual_kernels: 8
+  drop_path: 0.05
+  use_quality_calibration: true
+  use_content_orthogonalization: true
+  use_counterfactual_intervention: true
+  use_evidence_ledger: true
+  use_uncertainty_refinement: true
+  intervention_neighborhood: 9
+  intervention_teacher_mix: 0.5
+
+loss:
+  weights:
+    localization: 1.0
+    dice: 0.6
+    boundary: 0.25
+    deep_supervision: 0.35
+    proposal: 0.15
+    counterfactual: 0.25
+    ledger: 0.20
+    intervention_locality: 0.05
+    orthogonality: 0.03
+    image: 0.20
+    degradation_consistency: 0.0
+    variance_regularization: 0.01
+  positive_weight_clip: [1.0, 20.0]
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+
+training:
+  epochs: 3
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  warmup_epochs: 1
+  grad_clip: 1.0
+  amp: false
+  reset_optimizer_on_resume: true
+  consistency_probability: 0.0
+  intervention_teacher_probability: 0.6
+  log_interval: 20
+  early_stopping: 3
+
+evaluation:
+  batch_size: 1
+  threshold: 0.5
+  thresholds: 101
+  save_predictions: false

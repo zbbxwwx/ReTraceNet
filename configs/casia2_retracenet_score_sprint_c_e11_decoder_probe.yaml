@@ -1,0 +1,129 @@
+seed: 3407
+experiment: score_sprint_c_e11_decoder_probe
+output_dir: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/score_sprint_c_e11_decoder_probe_20260902_hardtree
+data:
+  root: /
+  manifest: /group4/zouwenxuan/iml_generalization/repos/ReTraceNet/data/casia2_721_manifest.csv
+  image_size: 640
+  num_workers: 4
+  authentic_probability: 0.1
+  positive_crop_probability: 0.7
+  boundary_crop_probability: 0.0
+  min_positive_crop_ratio: 0.005
+  crop_retries: 20
+  jpeg_probability: 0.15
+  jpeg_quality:
+  - 55
+  - 96
+  blur_probability: 0.1
+  color_jitter: 0.08
+  tiny_stratified_sampling: false
+  tiny_sampling_bucket_masses:
+    lt_1: 0.25
+    '1_3': 0.25
+    '3_10': 0.3
+    gte_10: 0.2
+    authentic: 0.02
+  area_stratified_sampling: true
+  area_sampling_bucket_masses:
+    lt_1: 0.3
+    '1_5': 0.35
+    '5_20': 0.2
+    gte_20: 0.1
+    authentic: 0.05
+evaluation:
+  batch_size: 1
+  threshold: 0.5
+  thresholds: 101
+  save_predictions: false
+model:
+  architecture: retracenet_b3_qtr_hcv2_dher_v21_mrfe_decoder_mrfe_recon
+  decoder_channels: 128
+  encoder_backbone: resnet50
+  forensic_channels:
+  - 64
+  - 128
+  - 256
+  - 512
+  freeze_encoder_bn: true
+  pretrained_path: /group4/zouwenxuan/iml_generalization/weights/resnet50-19c8e357.pth
+  residual_kernels: 8
+  enable_mrfe: true
+  enable_decoder_forensic_reconstruction: true
+  decoder_forensic_reconstruction_proj_channels: 32
+loss:
+  boundary_kernel: 5
+  counterfactual_margin: 0.5
+  positive_weight_clip:
+  - 1.0
+  - 1.0
+  weights:
+    localization: 1.0
+    dice: 1.0
+    deep_supervision: 0.0
+    boundary: 0.05
+    image: 0.0
+    proposal: 0.0
+    counterfactual: 0.0
+    degradation_consistency: 0.0
+    variance_regularization: 0.0
+    orthogonality: 0.0
+    ledger: 0.0
+    intervention_locality: 0.0
+    tversky: 0.2
+  tversky_alpha_fp: 0.3
+  tversky_beta_fn: 0.7
+hcv_loss:
+  proposal: 1.0
+  verifier: 1.0
+  withdrawal: 0.8
+  withdrawal_margin: 0.15
+  stability: 0.35
+  locality: 0.2
+training:
+  init_checkpoint: /group4/zouwenxuan/iml_generalization/outputs/retracenet_v2/score_sprint_c_e10_dher_activation_20260902_hardtree/best.pt
+  epochs: 5
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-05
+  weight_decay: 0.01
+  grad_clip: 0.5
+  amp: false
+  selection_metric: val_tampered_pooled_f1_best
+  constant_lr_epochs: 1
+  min_lr_ratio: 0.5
+  early_stopping: 3
+  meaningful_delta: 0.0
+  consistency_probability: 0.0
+  intervention_teacher_probability: 0.0
+  diagnostic_batches: 256
+  parameter_groups:
+  - patterns:
+    - decoder.forensic_reconstruction
+    lr: 1.0e-05
+    weight_decay: 0.01
+  - patterns:
+    - dher.
+    lr: 1.0e-05
+    weight_decay: 0.01
+  - patterns:
+    - decoder.stage1
+    lr: 3.0e-06
+    weight_decay: 0.01
+  - patterns:
+    - mask_head
+    lr: 3.0e-06
+    weight_decay: 0.01
+  ema: true
+  ema_decay: 0.999
+  deep_supervision_weights:
+  - 0.3
+  - 0.2
+  - 0.1
+  allowed_missing_prefixes:
+  - forensic_stream.mrfe.
+  - decoder.forensic_reconstruction.
+  strict_checkpoint: false
+dher_v2_loss:
+  support: 0.1
+  refutation: 0.05

@@ -1,0 +1,13 @@
+base_config: ../default.yaml
+experiment: a3_qrc_icti_dhel
+output_dir: runs/ablations/a3_qrc_icti_dhel
+model:
+  use_quality_calibration: true
+  use_content_orthogonalization: true
+  use_counterfactual_intervention: true
+  use_evidence_ledger: true
+  recycle_steps: 2
+  use_uncertainty_refinement: false
+loss:
+  weights:
+    variance_regularization: 0.0
